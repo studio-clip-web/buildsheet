@@ -1399,7 +1399,7 @@ function showTemplateScreen(r){
 function updateCanvasInfo(){
   var el = document.getElementById("canvas-info");
   if(!el || !state.ratio) return;
-  el.textContent = "v56 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
+  el.textContent = "v61 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
 }
 
 function startEditor(r, tplKey){
@@ -1755,6 +1755,7 @@ function renderCanvas(){
     }
 
     el.addEventListener("mousedown", function(ev){
+      if(ev.button === 1) return;   // 中ボタン（ホイールパン）はブロック操作に入らない
       if(ev.target.classList && ev.target.classList.contains("resize-handle")) return;
       if(ev.shiftKey){
         toggleSelect(b.id);
@@ -1810,7 +1811,19 @@ function renderCanvas(){
 }
 
 document.getElementById("canvas").addEventListener("mousedown", function(ev){
+  if(ev.button === 1) return;   // 中ボタンは選択解除しない
   if(ev.target.id === "canvas"){ state.selectedIds = []; render(); }
+});
+
+/* canvas-area内でcanvas以外の余白をmouseupしたら選択解除
+   mouseupなのでブロックのmousedown選択と競合しない */
+document.getElementById("canvas-area").addEventListener("mouseup", function(ev){
+  if(ev.button !== 0) return;
+  var canvas = document.getElementById("canvas");
+  if(!canvas.contains(ev.target)){
+    state.selectedIds = [];
+    render();
+  }
 });
 
 /* ---- ビューポート操作（canvas-area全体で受ける） ---- */
