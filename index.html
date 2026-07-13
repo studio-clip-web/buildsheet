@@ -76,10 +76,11 @@
   #canvas-area {
     flex: 1;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    overflow: hidden;
+    overflow: auto;
     position: relative;
+    padding: 30px 20px 50px;
   }
 
   .panel-divider {
@@ -1410,21 +1411,25 @@ function startEditor(r, tplKey){
   document.getElementById("template-screen").classList.remove("active");
   document.getElementById("editor").classList.add("active");
   updateCanvasInfo();
-  layoutCanvasSize();
-  render();
+  // DOM確定後にサイズ計算・スクロールを先頭に戻す
+  setTimeout(function(){
+    layoutCanvasSize();
+    var area = document.getElementById("canvas-area");
+    if(area) area.scrollTop = 0;
+    render();
+  }, 0);
 }
 
 function layoutCanvasSize(){
   var wrap = document.getElementById("canvas-area");
-  var maxW = wrap.clientWidth - 60;
-  var maxH = wrap.clientHeight - 80;
+  // paddingを除いた実際の表示域で計算（スクロールバー・padding分を引く）
+  var maxW = Math.max(100, wrap.clientWidth - 80);
+  var maxH = Math.max(100, (window.innerHeight - 120) * 0.85);
   var W = docW(), H = canvasHeight();
   var scale = Math.min(maxW / W, maxH / H, 1);
   if(scale <= 0 || !isFinite(scale)) scale = 1;
   state.scale = scale;
 
-  // キャンバスは実寸で作り、CSSのtransformで縮小表示する。
-  // こうすると文字も枠線も一緒に縮むので、画面と書き出しが完全に一致する。
   var canvas = document.getElementById("canvas");
   canvas.style.width = W + "px";
   canvas.style.height = H + "px";
@@ -1432,7 +1437,6 @@ function layoutCanvasSize(){
   canvas.style.transform = "scale(" + scale + ")";
   canvas.style.background = state.bgColor;
 
-  // 外側のラッパーは縮小後の見た目サイズに合わせる
   var cwrap = document.getElementById("canvas-wrap");
   cwrap.style.width = (W*scale) + "px";
   cwrap.style.height = (H*scale) + "px";
