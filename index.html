@@ -76,14 +76,11 @@
   #canvas-area {
     flex: 1;
     display: flex;
-    overflow: auto;
+    overflow: hidden;
     position: relative;
-    /* 上はツールバーの下に潜らないよう広めに空ける */
-    padding: 60px 24px 24px;
+    cursor: default;
   }
-  /* align-items:center だと、はみ出した時に上が切れてしまう。
-     margin:auto なら中央寄せしつつ、はみ出してもスクロールで全部見える。 */
-  #canvas-wrap { margin: auto; }
+  #canvas-wrap { position: absolute; transform-origin: top left; }
 
   .panel-divider {
     width: 5px;
@@ -662,6 +659,10 @@
         <div class="toolbar">
           <button id="undo-btn" title="元に戻す (Ctrl+Z)">↶ 戻す</button>
           <button id="redo-btn" title="やり直す (Ctrl+Shift+Z)">↷ 進む</button>
+          <button id="zoom-in-btn"  title="ズームイン (+)">＋</button>
+          <button id="zoom-out-btn" title="ズームアウト (-)">－</button>
+          <button id="zoom-fit-btn" title="全体表示">全体</button>
+          <span id="zoom-label" style="font-size:11px; color:#9a9a9e; font-family:'SFMono-Regular',Consolas,monospace; min-width:38px; text-align:right;"></span>
           <button id="reset-layout-btn">おすすめ配置に戻す</button>
           <button id="toggle-nums-btn">番号を隠す</button>
           <button id="change-ratio-btn">比率を変更（リセット）</button>
@@ -799,6 +800,9 @@ function redo(){
 
 document.getElementById("undo-btn").addEventListener("click", undo);
 document.getElementById("redo-btn").addEventListener("click", redo);
+document.getElementById("zoom-in-btn").addEventListener("click",  function(){ changeZoom(0.2); });
+document.getElementById("zoom-out-btn").addEventListener("click", function(){ changeZoom(-0.2); });
+document.getElementById("zoom-fit-btn").addEventListener("click", function(){ fitView(); renderCanvas(); });
 
 function armHistory(el){
   var armed = false;
@@ -1415,38 +1419,70 @@ function startEditor(r, tplKey){
   updateCanvasInfo();
   // DOM確定後にサイズ計算・スクロールを先頭に戻す
   setTimeout(function(){
-    layoutCanvasSize();
-    var area = document.getElementById("canvas-area");
-    if(area) area.scrollTop = 0;
+    fitView();
     render();
   }, 0);
 }
 
-var AREA_PAD_TOP = 60, AREA_PAD_SIDE = 24, AREA_PAD_BOTTOM = 24;
+/* ---- ビューポート（パン＋ズーム） ---- */
+var viewport = { x: 0, y: 0, zoom: 1 };
 
-function layoutCanvasSize(){
-  var wrap = document.getElementById("canvas-area");
-  // clientWidth/Height は padding を含むので、その分を引いて実際に置ける広さを出す
-  var maxW = Math.max(100, wrap.clientWidth  - AREA_PAD_SIDE*2 - 8);
-  var maxH = Math.max(100, wrap.clientHeight - AREA_PAD_TOP - AREA_PAD_BOTTOM - 8);
+function fitView(){
+  var area = document.getElementById("canvas-area");
   var W = docW(), H = canvasHeight();
-  var scale = Math.min(maxW / W, maxH / H, 1);
-  if(scale <= 0 || !isFinite(scale)) scale = 1;
-  state.scale = scale;
-
-  var canvas = document.getElementById("canvas");
-  canvas.style.width = W + "px";
-  canvas.style.height = H + "px";
-  canvas.style.transformOrigin = "top left";
-  canvas.style.transform = "scale(" + scale + ")";
-  canvas.style.background = state.bgColor;
-
-  var cwrap = document.getElementById("canvas-wrap");
-  cwrap.style.width = (W*scale) + "px";
-  cwrap.style.height = (H*scale) + "px";
+  var zoom = Math.min((area.clientWidth - 40) / W, (area.clientHeight - 40) / H, 1);
+  if(!isFinite(zoom) || zoom <= 0) zoom = 1;
+  viewport.zoom = zoom;
+  viewport.x = Math.round((area.clientWidth  - W * zoom) / 2);
+  viewport.y = Math.round((area.clientHeight - H * zoom) / 2);
+  applyViewport();
 }
 
-window.addEventListener("resize", function(){ if(state.ratio){ layoutCanvasSize(); render(); } });
+function applyViewport(){
+  var W = docW(), H = canvasHeight();
+  state.scale = viewport.zoom;
+  var canvas = document.getElementById("canvas");
+  canvas.style.width  = W + "px";
+  canvas.style.height = H + "px";
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = "scale(" + viewport.zoom + ")";
+  canvas.style.background = state.bgColor;
+  var cwrap = document.getElementById("canvas-wrap");
+  cwrap.style.transform = "translate(" + viewport.x + "px," + viewport.y + "px)";
+  cwrap.style.width  = (W * viewport.zoom) + "px";
+  cwrap.style.height = (H * viewport.zoom) + "px";
+  var lbl = document.getElementById("zoom-label");
+  if(lbl) lbl.textContent = Math.round(viewport.zoom * 100) + "%";
+}
+
+function clampViewport(){
+  // キャンバスがエリア外に完全に飛び出さないよう軽くクランプ
+  var area = document.getElementById("canvas-area");
+  var W = docW() * viewport.zoom, H = canvasHeight() * viewport.zoom;
+  var margin = 80;
+  viewport.x = Math.min(area.clientWidth  - margin, Math.max(margin - W, viewport.x));
+  viewport.y = Math.min(area.clientHeight - margin, Math.max(margin - H, viewport.y));
+}
+
+function changeZoom(delta, cx, cy){
+  // cx, cy: キャンバスエリア内での中心点（省略時はエリア中央）
+  var area = document.getElementById("canvas-area");
+  cx = (cx === undefined) ? area.clientWidth  / 2 : cx;
+  cy = (cy === undefined) ? area.clientHeight / 2 : cy;
+  var newZoom = Math.max(0.05, Math.min(8, viewport.zoom * (1 + delta)));
+  // ズーム前後でcx,cy下の点を固定する
+  viewport.x = cx - (cx - viewport.x) * (newZoom / viewport.zoom);
+  viewport.y = cy - (cy - viewport.y) * (newZoom / viewport.zoom);
+  viewport.zoom = newZoom;
+  clampViewport();
+  applyViewport();
+}
+
+function layoutCanvasSize(){
+  fitView();
+}
+
+window.addEventListener("resize", function(){ if(state.ratio){ fitView(); render(); } });
 
 /* ---- 左右パネルの幅をドラッグで調整 ---- */
 function setupDivider(dividerId, panelId, side){
@@ -1470,7 +1506,7 @@ function setupDivider(dividerId, panelId, side){
       var newW = (side === "left") ? (startW + delta) : (startW - delta);
       newW = Math.max(minW, Math.min(maxW, newW));
       panel.style.width = newW + "px";
-      if(state.ratio){ layoutCanvasSize(); renderCanvas(); }
+      if(state.ratio){ fitView(); renderCanvas(); }
     }
     function up(){
       divider.classList.remove("dragging");
@@ -1777,6 +1813,77 @@ document.getElementById("canvas").addEventListener("mousedown", function(ev){
   if(ev.target.id === "canvas"){ state.selectedIds = []; render(); }
 });
 
+/* ---- ビューポート操作（canvas-area全体で受ける） ---- */
+(function(){
+  var area = document.getElementById("canvas-area");
+
+  // ホイールでズーム
+  area.addEventListener("wheel", function(ev){
+    if(!state.ratio) return;
+    ev.preventDefault();
+    var r = area.getBoundingClientRect();
+    var cx = ev.clientX - r.left;
+    var cy = ev.clientY - r.top;
+    // Ctrl+wheelは通常ブラウザのピンチズームなのでそちらに任せる
+    if(ev.ctrlKey) return;
+    var delta = ev.deltaY < 0 ? 0.1 : -0.1;
+    changeZoom(delta, cx, cy);
+  }, { passive: false });
+
+  // 中ボタンドラッグでパン
+  var panning = false, panStartX, panStartY, panVX, panVY;
+  area.addEventListener("mousedown", function(ev){
+    if(ev.button !== 1) return;   // 中ボタンのみ
+    if(!state.ratio) return;
+    ev.preventDefault();
+    panning = true;
+    panStartX = ev.clientX;
+    panStartY = ev.clientY;
+    panVX = viewport.x;
+    panVY = viewport.y;
+    area.style.cursor = "grabbing";
+  });
+  document.addEventListener("mousemove", function(ev){
+    if(!panning) return;
+    viewport.x = panVX + (ev.clientX - panStartX);
+    viewport.y = panVY + (ev.clientY - panStartY);
+    clampViewport();
+    applyViewport();
+  });
+  document.addEventListener("mouseup", function(ev){
+    if(ev.button !== 1 || !panning) return;
+    panning = false;
+    area.style.cursor = "";
+  });
+
+  // スペース+ドラッグでもパン（キーボード操作ユーザー向け）
+  var spaceDown = false, spacePanning = false, spPX, spPY, spVX, spVY;
+  document.addEventListener("keydown", function(e){
+    if(e.code === "Space" && !e.target.matches("input,textarea,select")) spaceDown = true;
+  });
+  document.addEventListener("keyup", function(e){
+    if(e.code === "Space"){ spaceDown = false; spacePanning = false; area.style.cursor = ""; }
+  });
+  area.addEventListener("mousedown", function(ev){
+    if(!spaceDown || ev.button !== 0) return;
+    ev.preventDefault(); ev.stopPropagation();
+    spacePanning = true;
+    spPX = ev.clientX; spPY = ev.clientY;
+    spVX = viewport.x; spVY = viewport.y;
+    area.style.cursor = "grabbing";
+  });
+  document.addEventListener("mousemove", function(ev){
+    if(!spacePanning) return;
+    viewport.x = spVX + (ev.clientX - spPX);
+    viewport.y = spVY + (ev.clientY - spPY);
+    clampViewport();
+    applyViewport();
+  });
+  document.addEventListener("mouseup", function(ev){
+    if(ev.button === 0 && spacePanning){ spacePanning = false; area.style.cursor = spaceDown ? "grab" : ""; }
+  });
+})();
+
 function selectBlock(id){ state.selectedIds = [id]; render(); }
 function toggleSelect(id){
   var idx = state.selectedIds.indexOf(id);
@@ -1836,7 +1943,7 @@ function fontStack(f){
 
 /* ---- ドラッグ移動 ---- */
 function startDragGroup(ev, ids, anchor){
-  var scale = state.scale || 1;
+  var scale = viewport.zoom || 1;
   var startX = ev.clientX, startY = ev.clientY;
   var historyPushed = false;
   var origins = ids.map(function(id){
@@ -1873,7 +1980,7 @@ function startDragGroup(ev, ids, anchor){
 
 /* ---- リサイズ（対角の角を支点に固定） ---- */
 function startResize(ev, b, corner){
-  var scale = state.scale || 1;
+  var scale = viewport.zoom || 1;
   var startX = ev.clientX, startY = ev.clientY;
   var historyPushed = false;
 
