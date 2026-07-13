@@ -45,7 +45,7 @@
   .ratio-label { font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; color: #c8c8cc; }
 
   /* ---- エディタ画面 ---- */
-  #editor { display: none; height: 100%; }
+  #editor { display: none; height: calc(100% - 42px); }
   #editor.active { display: flex; }
 
   #left-panel {
@@ -76,12 +76,14 @@
   #canvas-area {
     flex: 1;
     display: flex;
-    align-items: flex-start;
-    justify-content: center;
     overflow: auto;
     position: relative;
-    padding: 30px 20px 50px;
+    /* 上はツールバーの下に潜らないよう広めに空ける */
+    padding: 60px 24px 24px;
   }
+  /* align-items:center だと、はみ出した時に上が切れてしまう。
+     margin:auto なら中央寄せしつつ、はみ出してもスクロールで全部見える。 */
+  #canvas-wrap { margin: auto; }
 
   .panel-divider {
     width: 5px;
@@ -160,7 +162,7 @@
     font-family: "SFMono-Regular", Consolas, monospace;
   }
 
-  #canvas-wrap { position: relative; }
+  #canvas-wrap { position: relative; flex-shrink: 0; }
 
   .layer-item {
     display: flex;
@@ -1393,7 +1395,7 @@ function showTemplateScreen(r){
 function updateCanvasInfo(){
   var el = document.getElementById("canvas-info");
   if(!el || !state.ratio) return;
-  el.textContent = "v48 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
+  el.textContent = "v56 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
 }
 
 function startEditor(r, tplKey){
@@ -1420,11 +1422,13 @@ function startEditor(r, tplKey){
   }, 0);
 }
 
+var AREA_PAD_TOP = 60, AREA_PAD_SIDE = 24, AREA_PAD_BOTTOM = 24;
+
 function layoutCanvasSize(){
   var wrap = document.getElementById("canvas-area");
-  // paddingを除いた実際の表示域で計算（スクロールバー・padding分を引く）
-  var maxW = Math.max(100, wrap.clientWidth - 80);
-  var maxH = Math.max(100, (window.innerHeight - 120) * 0.85);
+  // clientWidth/Height は padding を含むので、その分を引いて実際に置ける広さを出す
+  var maxW = Math.max(100, wrap.clientWidth  - AREA_PAD_SIDE*2 - 8);
+  var maxH = Math.max(100, wrap.clientHeight - AREA_PAD_TOP - AREA_PAD_BOTTOM - 8);
   var W = docW(), H = canvasHeight();
   var scale = Math.min(maxW / W, maxH / H, 1);
   if(scale <= 0 || !isFinite(scale)) scale = 1;
@@ -3183,7 +3187,6 @@ function exportJPEG(){
 
 <!-- エディタのキャンバスエリアがフッターと被らないよう余白 -->
 <style>
-  #canvas-area { padding-bottom: 40px; }
   #start-screen { padding-bottom: 44px; }
   #template-screen { padding-bottom: 44px; }
 </style>
