@@ -1068,14 +1068,15 @@ function noPanel(b){ b.panel = false; return b; }
 /* 説明文の既定：左揃え・上詰め */
 function bodyText(b){ b.align = "left"; b.valign = "top"; return b; }
 
-/* 見出し用のテキストブロック（大きめ・太字・幕なし） */
+/* 見出し用のテキストブロック（大きめ・太字・幕なし・Oswald） */
 function makeHeading(x, y, w, h, size){
   var b = makeBlock("text", x, y, w, h);
-  b.content = "タイトルを入力";
+  b.content = "Your model title";
   b.fontSize = size || 32;
   b.color = "#ffffff";
   b.bold = true;
   b.panel = false;
+  b.font = "oswald";
   return b;
 }
 
@@ -2961,9 +2962,12 @@ function mkFontSelect(current, onChange){
   }
   sel.addEventListener("change", function(){ apply(); histPushed = false; });
   // 上下キーでフォーカス中に値が変わった時もリアルタイムプレビュー
-  sel.addEventListener("keyup", function(e){
+  // inputイベント：ブラウザのoptionハイライト変化を捕捉（keyupより確実）
+  sel.addEventListener("input", function(){ apply(); histPushed = false; });
+  sel.addEventListener("keydown", function(e){
     if(e.key === "ArrowUp" || e.key === "ArrowDown"){
-      apply();
+      // keydownでpushHistoryはしない（確定前）
+      setTimeout(function(){ onChange(sel.value); }, 0);
     }
   });
   sel.addEventListener("blur", function(){ histPushed = false; });
@@ -3170,7 +3174,7 @@ function exportJPEG(){
   <a href="#" onclick="openLegal('terms'); return false;" style="color:#77777d; text-decoration:none;">利用規約</a>
   <a href="#" onclick="openLegal('contact'); return false;" style="color:#77777d; text-decoration:none;">お問い合わせ</a>
   <span style="color:#34343a;">|</span>
-  <span style="color:#52525a;">© 2025 BuildSheet</span>
+  <span style="color:#52525a;">© 2026 BuildSheet</span>
 </footer>
 
 <!-- エディタのキャンバスエリアがフッターと被らないよう余白 -->
@@ -3235,7 +3239,7 @@ var LEGAL_CONTENT = {
       "<div style='background:#242428; border-radius:6px; padding:16px 20px; margin:16px 0;'>",
       "<p style='margin:0; color:#ececec;'>サービス名：BuildSheet</p>",
       "<p style='margin:8px 0 0;'>運営：スタジオクリップ</p>",
-      "<p style='margin:8px 0 0;'>メール：<a href='mailto:info.studio.clip.web@gmail.com' style='color:#ff6b35;'>info@studio.clip.wedding</a></p>",
+      "<p style='margin:8px 0 0;'>メール：<a href='mailto:info.studio.clip.web@gmail.com' style='color:#ff6b35;'>info.studio.clip.web@gmail.com</a></p>",
       "</div>",
       "<p style='color:#9a9a9e; font-size:12px;'>お問い合わせへの返答にはお時間をいただく場合がございます。ご了承ください。</p>"
     ].join("")
