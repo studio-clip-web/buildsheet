@@ -549,6 +549,8 @@
     z-index: 5;
   }
   #canvas.hide-nums .block-num { display: none; }
+  /* 「番号を隠す」時はガイド枠も消して、仕上がりの見た目を確認できるようにする */
+  #canvas.hide-nums .block:not(.selected) { outline-style: none !important; }
   .layer-num {
     font-family: "SFMono-Regular", Consolas, monospace;
     font-size: 10px;
@@ -609,6 +611,7 @@
       <p class="panel-title">ブロックを追加</p>
       <div class="add-btn" data-add="image-full"><span class="swatch" style="width:12px;height:12px;"></span>画像</div>
       <div class="add-btn" data-add="colorguide"><span class="swatch" style="background:#ff6b35;"></span>カラーガイド</div>
+      <div class="add-btn" data-add="title"><span class="swatch" style="background:none;border:1px solid #666;display:flex;align-items:center;justify-content:center;font-size:9px;">T</span>タイトル</div>
       <div class="add-btn" data-add="text"><span class="swatch" style="background:none;border:1px solid #666;display:flex;align-items:center;justify-content:center;font-size:8px;">t</span>テキスト</div>
 
       <p class="panel-title" style="margin-top:22px;">キャンバス</p>
@@ -1034,6 +1037,19 @@ function makeBlock(type, x, y, w, h){
     b.panelOpacity = 0.6;
     b.aspectLocked = false;
     b.lockedRatio = w/h;
+  } else if(type === "title"){
+    // メインタイトル＋サブタイトルを一体で扱うブロック
+    b.main = { text: "MAIN TITLE", font: "oswald", fontSize: 64, letterSpacing: 0, bold: true, color: "#ffffff" };
+    b.sub  = { text: "サブタイトル",  font: "noto-sans", fontSize: 20, letterSpacing: 0.05, bold: true, color: "#ffffff" };
+    b.subPos = "above";     // above | below
+    b.gap = 4;              // メインとサブの間隔(px)
+    b.align = "left";
+    b.valign = "middle";
+    b.panel = false;
+    b.panelColor = "#0a0a0c";
+    b.panelOpacity = 0.5;
+    b.aspectLocked = false;
+    b.lockedRatio = w/h;
   } else if(type === "text"){
     b.content = "テキストを入力";
     b.fontSize = 14;
@@ -1075,15 +1091,23 @@ function noPanel(b){ b.panel = false; return b; }
 /* 説明文の既定：左揃え・上詰め */
 function bodyText(b){ b.align = "left"; b.valign = "top"; return b; }
 
-/* 見出し用のテキストブロック（大きめ・太字・幕なし・Oswald） */
+/* 見出し用のタイトルブロック（サブタイトルが上、メインが下） */
 function makeHeading(x, y, w, h, size){
-  var b = makeBlock("text", x, y, w, h);
-  b.content = "Your model title";
-  b.fontSize = size || 32;
-  b.color = "#ffffff";
-  b.bold = true;
+  var b = makeBlock("title", x, y, w, h);
+  var k = docScale();
+  b.main.text = "YOUR MODEL TITLE";
+  b.main.font = "oswald";
+  b.main.fontSize = Math.round((size || 32) * 1.6);
+  b.main.bold = true;
+  b.sub.text = "サブタイトル";
+  b.sub.font = "noto-sans";
+  b.sub.fontSize = Math.max(8, Math.round((size || 32) * 0.5));
+  b.sub.bold = true;
+  b.sub.letterSpacing = 0.08;
+  b.subPos = "above";
+  b.gap = Math.round(4 * k);
+  b.valign = "top";
   b.panel = false;
-  b.font = "oswald";
   return b;
 }
 
@@ -1399,7 +1423,7 @@ function showTemplateScreen(r){
 function updateCanvasInfo(){
   var el = document.getElementById("canvas-info");
   if(!el || !state.ratio) return;
-  el.textContent = "v61 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
+  el.textContent = "v62 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
 }
 
 function startEditor(r, tplKey){
@@ -1422,6 +1446,77 @@ function startEditor(r, tplKey){
     fitView();
     render();
   }, 0);
+}
+
+/* ドラッグ／リサイズ中の高速更新。
+   DOMを作り直すと巨大なbase64画像を貼り直すことになり重いので、
+   位置とサイズだけを既存要素に書き込む。 */
+function fastApply(blocks){
+  blocks.forEach(function(b){
+    var el = blockEls[b.id];
+    if(!el) return;
+    el.style.left   = b.x + "px";
+    el.style.top    = b.y + "px";
+    el.style.width  = b.w + "px";
+    el.style.height = b.h + "px";
+
+    var inner = blockInners[b.id];
+    if(inner && b.type.indexOf("image") === 0 && b.img && b.imgW && b.imgH){
+      // 枠が変わるとトリミング位置も変わるので、背景の位置だけ計算し直す
+      var g = cropGeometry(b.imgW, b.imgH, b.w, b.h, b.crop);
+      inner.style.backgroundSize = g.dw + "px " + g.dh + "px";
+      inner.style.backgroundPosition = g.ox + "px " + g.oy + "px";
+    }
+  });
+  fastGuides();
+  fastGeomInputs();
+}
+
+/* ガイド線も作り直さずに位置だけ更新する */
+var guideV = null, guideH = null;
+function fastGuides(){
+  var canvas = document.getElementById("canvas");
+  var inv = 1 / (state.scale || 1);
+  var g = state.dragGuides;
+
+  if(g && g.x !== null && g.x !== undefined){
+    if(!guideV || !guideV.parentNode){
+      guideV = document.createElement("div");
+      guideV.className = "guide-line v";
+      canvas.appendChild(guideV);
+    }
+    guideV.style.left = g.x + "px";
+    guideV.style.width = (1*inv) + "px";
+    guideV.style.display = "";
+  } else if(guideV){
+    guideV.style.display = "none";
+  }
+
+  if(g && g.y !== null && g.y !== undefined){
+    if(!guideH || !guideH.parentNode){
+      guideH = document.createElement("div");
+      guideH.className = "guide-line h";
+      canvas.appendChild(guideH);
+    }
+    guideH.style.top = g.y + "px";
+    guideH.style.height = (1*inv) + "px";
+    guideH.style.display = "";
+  } else if(guideH){
+    guideH.style.display = "none";
+  }
+}
+
+/* 右パネルの数値欄だけ更新（パネル全体は作り直さない） */
+function fastGeomInputs(){
+  if(state.selectedIds.length !== 1) return;
+  var b = findBlock(state.selectedIds[0]);
+  if(!b) return;
+  var x = document.getElementById("geom-x"), y = document.getElementById("geom-y");
+  var w = document.getElementById("geom-w"), h = document.getElementById("geom-h");
+  if(x) x.value = Math.round(b.x + b.w/2);
+  if(y) y.value = Math.round(b.y + b.h/2);
+  if(w) w.value = Math.round(b.w);
+  if(h) h.value = Math.round(b.h);
 }
 
 /* ---- ビューポート（パン＋ズーム） ---- */
@@ -1554,6 +1649,7 @@ document.querySelectorAll(".add-btn[data-add]").forEach(function(el){
     var offset = count * 24 * k;
     var defaults = {
       "image-full": [180,180],
+      "title": [420,120],
       "colorguide": [300,220],
       "text": [300,100]
     };
@@ -1581,9 +1677,14 @@ function render(){
   renderLayers();
 }
 
+var blockEls = {};    // ブロックid → DOM要素（ドラッグ中の高速更新用）
+var blockInners = {}; // ブロックid → 中身の要素
+
 function renderCanvas(){
   var canvas = document.getElementById("canvas");
   canvas.innerHTML = "";
+  blockEls = {};
+  blockInners = {};
   canvas.style.background = state.bgColor;
   var scale = state.scale || 1;
   var inv = 1 / scale;        // 画面縮小の逆補正（ハンドルや番号を一定サイズに保つ）
@@ -1593,16 +1694,24 @@ function renderCanvas(){
     if(b.visible === false) return;
     var isSelected = state.selectedIds.indexOf(b.id) !== -1;
     var el = document.createElement("div");
-    el.className = "block";
+    el.className = "block" + (isSelected ? " selected" : "");
     el.style.left = b.x + "px";
     el.style.top = b.y + "px";
     el.style.width = b.w + "px";
     el.style.height = b.h + "px";
     el.style.zIndex = b.z;
     el.dataset.id = b.id;
+    // 未選択でもブロックの範囲がわかるよう、常に枠（バウンディングボックス）を出す
+    // ショートハンドだと環境によって効かないことがあるので個別に指定する
+    el.style.outlineOffset = "0px";
     if(isSelected){
-      el.style.outline = (2*inv) + "px solid #ff6b35";
-      el.style.outlineOffset = (2*inv) + "px";
+      el.style.outlineStyle = "solid";
+      el.style.outlineWidth = (2*inv) + "px";
+      el.style.outlineColor = "#ff6b35";
+    } else {
+      el.style.outlineStyle = "dashed";
+      el.style.outlineWidth = (1*inv) + "px";
+      el.style.outlineColor = "rgba(255,255,255,0.3)";
     }
 
     var inner;
@@ -1626,6 +1735,49 @@ function renderCanvas(){
       if(b.border && b.border.enabled){
         inner.style.border = b.border.width+"px solid "+b.border.color;
         inner.style.boxSizing = "border-box";
+      }
+    } else if(b.type === "title"){
+      inner = document.createElement("div");
+      inner.className = "block-text";
+      inner.style.padding = (10*k) + "px " + (14*k) + "px";
+      inner.style.background = panelFill(b);
+      inner.style.textAlign = b.align || "left";
+      inner.style.justifyContent =
+        (b.valign === "top") ? "flex-start" :
+        (b.valign === "bottom") ? "flex-end" : "center";
+      inner.style.alignItems =
+        (b.align === "center") ? "center" :
+        (b.align === "right") ? "flex-end" : "flex-start";
+
+      var mainEl = document.createElement("div");
+      mainEl.textContent = b.main.text;
+      mainEl.style.fontFamily = fontStack(b.main.font);
+      mainEl.style.fontSize = b.main.fontSize + "px";
+      mainEl.style.fontWeight = b.main.bold ? "700" : "400";
+      mainEl.style.letterSpacing = (b.main.letterSpacing || 0) + "em";
+      mainEl.style.color = b.main.color;
+      mainEl.style.lineHeight = "1.1";
+      mainEl.style.whiteSpace = "pre-wrap";
+
+      var subEl = document.createElement("div");
+      subEl.textContent = b.sub.text;
+      subEl.style.fontFamily = fontStack(b.sub.font);
+      subEl.style.fontSize = b.sub.fontSize + "px";
+      subEl.style.fontWeight = b.sub.bold ? "700" : "400";
+      subEl.style.letterSpacing = (b.sub.letterSpacing || 0) + "em";
+      subEl.style.color = b.sub.color;
+      subEl.style.lineHeight = "1.2";
+      subEl.style.whiteSpace = "pre-wrap";
+      subEl.style.display = (b.sub.text ? "" : "none");
+      if((b.subPos || "above") === "above") subEl.style.marginBottom = (b.gap || 0) + "px";
+      else subEl.style.marginTop = (b.gap || 0) + "px";
+
+      if((b.subPos || "above") === "above"){
+        inner.appendChild(subEl);
+        inner.appendChild(mainEl);
+      } else {
+        inner.appendChild(mainEl);
+        inner.appendChild(subEl);
       }
     } else if(b.type === "colorguide"){
       inner = document.createElement("div");
@@ -1769,6 +1921,8 @@ function renderCanvas(){
       startDragGroup(ev, state.selectedIds.slice(), b);
     });
 
+    blockEls[b.id] = el;
+    blockInners[b.id] = inner;
     canvas.appendChild(el);
   });
 
@@ -1973,13 +2127,15 @@ function startDragGroup(ev, ids, anchor){
     var snapped = snapMove(anchor, rawX, rawY);
     var actualDX = Math.round(snapped.x) - anchorOrig.x;
     var actualDY = Math.round(snapped.y) - anchorOrig.y;
+    var moved = [];
     origins.forEach(function(o){
       var blk = findBlock(o.id);
       blk.x = o.x + actualDX;
       blk.y = o.y + actualDY;
+      moved.push(blk);
     });
     state.dragGuides = { x: snapped.guideX, y: snapped.guideY };
-    render();
+    fastApply(moved);   // DOMを作り直さずに位置だけ更新（軽い）
   }
   function up(){
     state.dragGuides = null;
@@ -2051,7 +2207,7 @@ function startResize(ev, b, corner){
     b.y = isTop  ? (anchorY - newH) : anchorY;
 
     state.dragGuides = { x: guideX, y: guideY };
-    render();
+    fastApply([b]);   // DOMを作り直さずにサイズだけ更新（軽い）
   }
   function up(){
     state.dragGuides = null;
@@ -2101,9 +2257,13 @@ function reCrop(b){
 
 /* ---- 右パネル：プロパティ編集 ---- */
 function layerLabel(b){
+  if(b.type === "title"){
+    var mt = (b.main.text || "").split("\n")[0].trim();
+    return mt ? (mt.length > 12 ? mt.slice(0,12) + "…" : mt) : "タイトル";
+  }
   var typeLabel = {
     "image-full":"画像",
-    "colorguide":"カラーガイド", "text":"テキスト"
+    "colorguide":"カラーガイド", "title":"タイトル", "text":"テキスト"
   }[b.type];
   if(b.type === "text"){
     var t = (b.content || "").split("\n")[0].trim();
@@ -2246,7 +2406,7 @@ function renderProps(){
 
   var typeLabel = {
     "image-full":"画像",
-    "colorguide":"カラーガイド", "text":"テキスト"
+    "colorguide":"カラーガイド", "title":"タイトル", "text":"テキスト"
   }[b.type];
 
   var head = document.createElement("div");
@@ -2261,11 +2421,11 @@ function renderProps(){
   var xInp = mkNumInput(Math.round(b.x + b.w/2), function(v){
     b.x = Math.round(v - b.w/2);
     renderCanvas();
-  });
+  }, "geom-x");
   var yInp = mkNumInput(Math.round(b.y + b.h/2), function(v){
     b.y = Math.round(v - b.h/2);
     renderCanvas();
-  });
+  }, "geom-y");
   grid1.appendChild(wrapLabeled("X（中心）", xInp));
   grid1.appendChild(wrapLabeled("Y（中心）", yInp));
   psField.appendChild(grid1);
@@ -2279,7 +2439,7 @@ function renderProps(){
     b.x = Math.round(cx - b.w/2);
     b.y = Math.round(cy - b.h/2);
     renderCanvas();
-  });
+  }, "geom-w");
   var hInp = mkNumInput(b.h, function(v){
     var cx2 = parseInt(xInp.value, 10); if(isNaN(cx2)) cx2 = b.x + b.w/2;
     var cy2 = parseInt(yInp.value, 10); if(isNaN(cy2)) cy2 = b.y + b.h/2;
@@ -2288,7 +2448,7 @@ function renderProps(){
     b.x = Math.round(cx2 - b.w/2);
     b.y = Math.round(cy2 - b.h/2);
     renderCanvas();
-  });
+  }, "geom-h");
   grid2.appendChild(wrapLabeled("W（中央基準）", wInp));
   grid2.appendChild(wrapLabeled("H（中央基準）", hInp));
   psField.appendChild(grid2);
@@ -2498,6 +2658,70 @@ function renderProps(){
     content.appendChild(fcols);
 
     appendAlignControls(content, b, "中身の揃え");
+    appendPanelControls(content, b);
+  }
+
+  if(b.type === "title"){
+    // ---- メインタイトル ----
+    var hMain = document.createElement("p");
+    hMain.className = "panel-title";
+    hMain.style.marginTop = "6px";
+    hMain.textContent = "メインタイトル";
+    content.appendChild(hMain);
+
+    appendTitlePart(content, b, b.main, "main");
+
+    // ---- サブタイトル ----
+    var hSub = document.createElement("p");
+    hSub.className = "panel-title";
+    hSub.style.marginTop = "18px";
+    hSub.textContent = "サブタイトル";
+    content.appendChild(hSub);
+
+    var fSubPos = mkField("サブの位置");
+    var posGrid = document.createElement("div");
+    posGrid.className = "align-grid";
+    posGrid.style.gridTemplateColumns = "1fr 1fr";
+    [["メインの上","above"],["メインの下","below"]].forEach(function(o){
+      var btn = document.createElement("button");
+      btn.textContent = o[0];
+      if((b.subPos || "above") === o[1]){
+        btn.style.borderColor = "#ff6b35";
+        btn.style.color = "#ff6b35";
+      }
+      btn.addEventListener("click", function(){
+        pushHistory();
+        b.subPos = o[1];
+        render();
+      });
+      posGrid.appendChild(btn);
+    });
+    fSubPos.appendChild(posGrid);
+    content.appendChild(fSubPos);
+
+    appendTitlePart(content, b, b.sub, "sub");
+
+    // ---- 間隔 ----
+    var fgap = mkField("メインとサブの間隔 (" + (b.gap || 0) + "px)");
+    var gapInp = document.createElement("input");
+    gapInp.type = "range"; gapInp.min = 0; gapInp.max = 200; gapInp.step = 1;
+    gapInp.value = b.gap || 0;
+    armHistory(gapInp).addEventListener("input", function(e){
+      b.gap = parseInt(e.target.value, 10);
+      fgap.querySelector("label").textContent = "メインとサブの間隔 (" + b.gap + "px)";
+      renderCanvas();
+    });
+    fgap.appendChild(gapInp);
+    content.appendChild(fgap);
+
+    // ---- 共通（揃え・幕） ----
+    var hCommon = document.createElement("p");
+    hCommon.className = "panel-title";
+    hCommon.style.marginTop = "18px";
+    hCommon.textContent = "配置";
+    content.appendChild(hCommon);
+
+    appendAlignControls(content, b, "全体の揃え");
     appendPanelControls(content, b);
   }
 
@@ -2879,6 +3103,78 @@ document.getElementById("crop-confirm-btn").addEventListener("click", function()
   cb(result);
 });
 
+/* タイトルのメイン／サブ共通の編集UI（文言・フォント・サイズ・文字間・太字・色） */
+function appendTitlePart(content, b, part, key){
+  var fText = mkField("文言");
+  var ta = document.createElement("textarea");
+  ta.value = part.text;
+  ta.style.minHeight = "40px";
+  armHistory(ta).addEventListener("input", function(e){
+    part.text = e.target.value;
+    renderCanvas();
+    renderLayers();
+  });
+  fText.appendChild(ta);
+  content.appendChild(fText);
+
+  var fFont = mkField("フォント");
+  fFont.appendChild(mkFontSelect(part.font, function(v){ part.font = v; renderCanvas(); }));
+  content.appendChild(fFont);
+
+  var fSize = mkField("文字サイズ (" + part.fontSize + "px)");
+  var sizeInp = document.createElement("input");
+  sizeInp.type = "range"; sizeInp.min = 8; sizeInp.max = 400; sizeInp.step = 1;
+  sizeInp.value = part.fontSize;
+  armHistory(sizeInp).addEventListener("input", function(e){
+    part.fontSize = parseInt(e.target.value, 10);
+    fSize.querySelector("label").textContent = "文字サイズ (" + part.fontSize + "px)";
+    renderCanvas();
+  });
+  fSize.appendChild(sizeInp);
+  content.appendChild(fSize);
+
+  var fLs = mkField("文字間 (" + (part.letterSpacing || 0).toFixed(2) + "em)");
+  var lsInp = document.createElement("input");
+  lsInp.type = "range"; lsInp.min = -10; lsInp.max = 80; lsInp.step = 1;
+  lsInp.value = Math.round((part.letterSpacing || 0) * 100);
+  armHistory(lsInp).addEventListener("input", function(e){
+    part.letterSpacing = parseInt(e.target.value, 10) / 100;
+    fLs.querySelector("label").textContent = "文字間 (" + part.letterSpacing.toFixed(2) + "em)";
+    renderCanvas();
+  });
+  fLs.appendChild(lsInp);
+  content.appendChild(fLs);
+
+  var fRow = mkField("");
+  var cbBold = document.createElement("label");
+  cbBold.className = "checkbox-row";
+  cbBold.style.marginBottom = "6px";
+  cbBold.innerHTML = "<input type='checkbox' " + (part.bold ? "checked" : "") + "> 太字にする";
+  cbBold.querySelector("input").addEventListener("change", function(e){
+    pushHistory();
+    part.bold = e.target.checked;
+    renderCanvas();
+  });
+  fRow.appendChild(cbBold);
+
+  var colorRow = document.createElement("div");
+  colorRow.className = "row";
+  var lbl = document.createElement("span");
+  lbl.textContent = "文字色";
+  lbl.style.cssText = "font-size:11px; color:#9a9a9e;";
+  var colorInp = document.createElement("input");
+  colorInp.type = "color";
+  colorInp.value = part.color;
+  armHistory(colorInp).addEventListener("input", function(e){
+    part.color = e.target.value;
+    renderCanvas();
+  });
+  colorRow.appendChild(lbl);
+  colorRow.appendChild(colorInp);
+  fRow.appendChild(colorRow);
+  content.appendChild(fRow);
+}
+
 /* 揃えの共通UI：テキストとカラーガイドで使う */
 function appendAlignControls(content, b, label){
   var falign = mkField(label || "文字の揃え");
@@ -3034,9 +3330,10 @@ function renderMultiProps(content){
   content.appendChild(hintP);
 }
 
-function mkNumInput(value, onChange){
+function mkNumInput(value, onChange, id){
   var inp = document.createElement("input");
   inp.type = "number";
+  if(id) inp.id = id;
   inp.value = Math.round(value);
   armHistory(inp).addEventListener("input", function(e){
     var v = parseInt(e.target.value, 10);
@@ -3162,6 +3459,57 @@ function exportJPEG(){
         ctx.fillStyle = "#2a2a2e";
         ctx.fillRect(x,y,w,h);
       }
+    } else if(b.type === "title"){
+      if(b.panel !== false){
+        ctx.fillStyle = panelFill(b);
+        ctx.fillRect(x,y,w,h);
+      }
+      var Ttl = EXPORT_SCALE;
+      var tPadX = 14*Ttl*docScale(), tPadY = 10*Ttl*docScale();
+
+      var mainFs = b.main.fontSize * Ttl;
+      var subFs  = b.sub.fontSize  * Ttl;
+      var mainLines = String(b.main.text).split("\n");
+      var subLines  = b.sub.text ? String(b.sub.text).split("\n") : [];
+      var mainLH = mainFs * 1.1;
+      var subLH  = subFs * 1.2;
+      var gapPx  = (b.gap || 0) * Ttl;
+
+      var totalH = mainLines.length*mainLH + (subLines.length ? subLines.length*subLH + gapPx : 0);
+      var tv = b.valign || "middle";
+      var ty = (tv === "top") ? (y + tPadY)
+             : (tv === "bottom") ? (y + h - totalH - tPadY)
+             : (y + (h - totalH)/2);
+
+      var ta = b.align || "left";
+      ctx.textAlign = (ta === "center") ? "center" : (ta === "right" ? "right" : "left");
+      var tx = (ta === "center") ? (x + w/2)
+             : (ta === "right")  ? (x + w - tPadX)
+             : (x + tPadX);
+      ctx.textBaseline = "top";
+
+      function drawTitlePart(part, lines, fs, lh){
+        if(!lines.length) return;
+        if(typeof ctx.letterSpacing !== "undefined") ctx.letterSpacing = (part.letterSpacing || 0) + "em";
+        ctx.font = (part.bold ? "700 " : "") + fs + "px " + fontStack(part.font);
+        ctx.fillStyle = part.color;
+        lines.forEach(function(line){
+          ctx.fillText(line, tx, ty);
+          ty += lh;
+        });
+      }
+
+      if((b.subPos || "above") === "above"){
+        drawTitlePart(b.sub, subLines, subFs, subLH);
+        if(subLines.length) ty += gapPx;
+        drawTitlePart(b.main, mainLines, mainFs, mainLH);
+      } else {
+        drawTitlePart(b.main, mainLines, mainFs, mainLH);
+        if(subLines.length) ty += gapPx;
+        drawTitlePart(b.sub, subLines, subFs, subLH);
+      }
+      if(typeof ctx.letterSpacing !== "undefined") ctx.letterSpacing = "0em";
+      ctx.textAlign = "left";
     } else if(b.type === "colorguide"){
       if(b.panel !== false){
         ctx.fillStyle = panelFill(b);
@@ -3262,29 +3610,33 @@ function exportJPEG(){
     }
     });
 
-    // クレジット表記を最前面に焼き込む
+    // クレジット（ロゴ画像）を最前面に焼き込んでからダウンロード
     var cm = creditMetrics();
     var E = EXPORT_SCALE;
-    var fs = cm.fontSize * E;
-    var padX = cm.padX * E, padY = cm.padY * E, margin = cm.margin * E;
-
-    ctx.font = fs + "px 'Noto Sans JP', sans-serif";
-    ctx.textBaseline = "top";
-    ctx.textAlign = "left";
-    var tw = ctx.measureText(CREDIT_TEXT).width;
-    var boxW = tw + padX*2;
-    var boxH = fs*1.35 + padY*2;
+    var margin = cm.margin * E;
+    var logoH = cm.fontSize * 5 * E;
     var cpos = state.credit.pos || "br";
-    var boxX = (cpos === "tl" || cpos === "bl") ? margin : (cvs.width - margin - boxW);
-    var boxY = (cpos === "tl" || cpos === "tr") ? margin : (cvs.height - margin - boxH);
 
-    var cc = creditColors();
-    ctx.fillStyle = cc.panel;
-    ctx.fillRect(boxX, boxY, boxW, boxH);
-    ctx.fillStyle = cc.text;
-    ctx.fillText(CREDIT_TEXT, boxX + padX, boxY + padY + fs*0.1);
+    function download(){
+      var url = cvs.toDataURL("image/jpeg", 0.92);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "buildsheet_" + out.w + "x" + out.h + ".jpg";
+      a.click();
+    }
 
-    // ダウンロードはロゴ描画のonload内で実行される
+    var logoEl = new Image();
+    logoEl.onload = function(){
+      var aspect = (logoEl.naturalWidth || logoEl.width) / (logoEl.naturalHeight || logoEl.height);
+      var drawH = logoH;
+      var drawW = drawH * aspect;
+      var boxX = (cpos === "tl" || cpos === "bl") ? margin : (cvs.width  - margin - drawW);
+      var boxY = (cpos === "tl" || cpos === "tr") ? margin : (cvs.height - margin - drawH);
+      ctx.drawImage(logoEl, boxX, boxY, drawW, drawH);
+      download();
+    };
+    logoEl.onerror = function(){ download(); };   // ロゴが読めなくても書き出しは行う
+    logoEl.src = (state.credit.style === "light") ? LOGO_BLACK : LOGO_WHITE;
   });
 }
 
