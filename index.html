@@ -1429,7 +1429,7 @@ function showTemplateScreen(r){
 function updateCanvasInfo(){
   var el = document.getElementById("canvas-info");
   if(!el || !state.ratio) return;
-  el.textContent = "v65 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
+  el.textContent = "v66 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
 }
 
 function startEditor(r, tplKey){
@@ -3421,6 +3421,44 @@ document.getElementById("export-btn").addEventListener("click", function(){
   openExportModal();
 });
 
+/* Canvas APIには自動折り返しがないので自前で行う。
+   日本語は単語の区切りがないため、1文字ずつ幅を測って詰めていく。
+   （英単語は途中で切れないよう、半角スペース区切りも見る） */
+function wrapTextLines(ctx, text, maxWidth){
+  var out = [];
+  String(text).split("\n").forEach(function(paragraph){
+    if(paragraph === ""){ out.push(""); return; }
+
+    var line = "";
+    var i = 0;
+    while(i < paragraph.length){
+      var ch = paragraph[i];
+
+      // 半角英数字が続く場合は単語としてまとめて扱い、途中で割らない
+      var token = ch;
+      if(/[A-Za-z0-9]/.test(ch)){
+        var j = i;
+        token = "";
+        while(j < paragraph.length && /[A-Za-z0-9]/.test(paragraph[j])){
+          token += paragraph[j];
+          j++;
+        }
+      }
+
+      var test = line + token;
+      if(ctx.measureText(test).width > maxWidth && line !== ""){
+        out.push(line);
+        line = token;
+      } else {
+        line = test;
+      }
+      i += token.length;
+    }
+    out.push(line);
+  });
+  return out;
+}
+
 function exportJPEG(){
   var out = exportSize();
   var EXPORT_SCALE = out.w / docW();
@@ -3486,8 +3524,20 @@ function exportJPEG(){
 
       var mainFs = b.main.fontSize * Ttl;
       var subFs  = b.sub.fontSize  * Ttl;
-      var mainLines = String(b.main.text).split("\n");
-      var subLines  = b.sub.text ? String(b.sub.text).split("\n") : [];
+      var maxTitleW = w - tPadX*2;
+
+      // メインとサブ、それぞれのフォント設定で幅を測ってから折り返す
+      if(typeof ctx.letterSpacing !== "undefined") ctx.letterSpacing = (b.main.letterSpacing || 0) + "em";
+      ctx.font = (b.main.bold ? "700 " : "") + mainFs + "px " + fontStack(b.main.font);
+      var mainLines = wrapTextLines(ctx, b.main.text, maxTitleW);
+
+      var subLines = [];
+      if(b.sub.text){
+        if(typeof ctx.letterSpacing !== "undefined") ctx.letterSpacing = (b.sub.letterSpacing || 0) + "em";
+        ctx.font = (b.sub.bold ? "700 " : "") + subFs + "px " + fontStack(b.sub.font);
+        subLines = wrapTextLines(ctx, b.sub.text, maxTitleW);
+      }
+
       var mainLH = mainFs * 1.1;
       var subLH  = subFs * 1.2;
       var gapPx  = (b.gap || 0) * Ttl;
@@ -3602,7 +3652,14 @@ function exportJPEG(){
 
       var St = EXPORT_SCALE * docScale();
       var padX = 14*St, padY = 10*St;
-      var lines = b.content.split("\n");
+
+      // 文字間はフォント設定より先に入れる（幅の計測に影響するため）
+      if(typeof ctx.letterSpacing !== "undefined") ctx.letterSpacing = (b.letterSpacing || 0) + "em";
+
+      // ブロックの幅で自動折り返しする（画面のCSSと同じ見た目にするため）
+      var maxTextW = w - padX*2;
+      var lines = wrapTextLines(ctx, b.content, maxTextW);
+
       var lh = b.lineHeight || 1.5;
       var lineH = b.fontSize*EXPORT_SCALE*lh;
       var totalH = lines.length * lineH;
@@ -3613,7 +3670,6 @@ function exportJPEG(){
              : (align === "right")  ? (x + w - padX)
              : (x + padX);
 
-      if(typeof ctx.letterSpacing !== "undefined") ctx.letterSpacing = (b.letterSpacing || 0) + "em";
       var valign = b.valign || "middle";
       var ty = (valign === "top")    ? (y + padY)
              : (valign === "bottom") ? (y + h - totalH - padY)
