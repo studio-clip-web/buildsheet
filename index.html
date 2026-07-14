@@ -256,7 +256,7 @@
   }
   .cg-title { font-size: 13px; letter-spacing: 0.08em; font-weight: 500; margin-bottom: 8px; border-bottom: 1px solid currentColor; padding-bottom: 6px; }
   .cg-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
-  .cg-swatch { width: 16px; height: 16px; border-radius: 2px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.3); }
+  .cg-swatch { width: 16px; height: 16px; border-radius: 2px; flex-shrink: 0; border: 1px solid #8a8a90; box-sizing: border-box; }
 
   .guide-line {
     position: absolute;
@@ -1429,7 +1429,7 @@ function showTemplateScreen(r){
 function updateCanvasInfo(){
   var el = document.getElementById("canvas-info");
   if(!el || !state.ratio) return;
-  el.textContent = "v66 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
+  el.textContent = "v67 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
 }
 
 function startEditor(r, tplKey){
@@ -1839,6 +1839,7 @@ function renderCanvas(){
         sw.style.background = c.hex;
         sw.style.width = (16*cgk) + "px";
         sw.style.height = (16*cgk) + "px";
+        sw.style.borderWidth = Math.max(1, 1*cgk) + "px";
         row.appendChild(sw);
         var label = document.createElement("span");
         label.textContent = c.name + (b.showRatio && c.ratio ? "（" + c.ratio + "）" : "");
@@ -3634,8 +3635,14 @@ function exportJPEG(){
                  : (cgA === "right")  ? (cellX + colW - rowW)
                  : cellX;
 
+        // 色の四角（塗り＋グレーの枠。枠がないと背景と同化してしまう）
         ctx.fillStyle = c.hex;
         ctx.fillRect(rowX, lineY, swatch, swatch);
+        var swBorder = Math.max(1, 1*S);
+        ctx.lineWidth = swBorder;
+        ctx.strokeStyle = "#8a8a90";
+        ctx.strokeRect(rowX + swBorder/2, lineY + swBorder/2, swatch - swBorder, swatch - swBorder);
+
         ctx.fillStyle = b.textColor || "#ffffff";
         ctx.fillText(label, rowX + swatch + gapSw, lineY + 1*S);
       });
