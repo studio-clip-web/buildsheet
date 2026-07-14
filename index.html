@@ -1429,7 +1429,7 @@ function showTemplateScreen(r){
 function updateCanvasInfo(){
   var el = document.getElementById("canvas-info");
   if(!el || !state.ratio) return;
-  el.textContent = "v64 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
+  el.textContent = "v65 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
 }
 
 function startEditor(r, tplKey){
@@ -1528,14 +1528,25 @@ function fastGeomInputs(){
 /* ---- ビューポート（パン＋ズーム） ---- */
 var viewport = { x: 0, y: 0, zoom: 1 };
 
+/* ツールバーはcanvas-areaの上に絶対配置で重なっているので、
+   その高さぶんキャンバスを下げないと上部が隠れてしまう */
+var TOOLBAR_H = 56;
+
 function fitView(){
   var area = document.getElementById("canvas-area");
   var W = docW(), H = canvasHeight();
-  var zoom = Math.min((area.clientWidth - 40) / W, (area.clientHeight - 40) / H, 1);
+
+  // 実際に使える領域（ツールバーの下・左右と下に余白20px）
+  var availW = area.clientWidth  - 40;
+  var availH = area.clientHeight - TOOLBAR_H - 40;
+
+  var zoom = Math.min(availW / W, availH / H, 1);
   if(!isFinite(zoom) || zoom <= 0) zoom = 1;
   viewport.zoom = zoom;
-  viewport.x = Math.round((area.clientWidth  - W * zoom) / 2);
-  viewport.y = Math.round((area.clientHeight - H * zoom) / 2);
+
+  // 使える領域の中で中央に置く（縦はツールバーの下から数える）
+  viewport.x = Math.round((area.clientWidth - W * zoom) / 2);
+  viewport.y = Math.round(TOOLBAR_H + (availH - H * zoom) / 2);
   applyViewport();
 }
 
