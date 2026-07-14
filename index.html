@@ -594,6 +594,12 @@
         <option value="4000">4000 px</option>
       </select>
     </div>
+      <div style="max-width:520px; margin:14px auto 0; padding:12px 16px; background:#242428; border:1px solid #34343a; border-radius:6px;">
+        <p style="margin:0; font-size:12px; color:#c8c8cc; line-height:1.8;">
+          <span style="color:#ff6b35; font-weight:600;">※ BuildSheetは現在PC向けのサービスです。</span><br>
+          細かいレイアウト調整やドラッグ操作が必要なため、スマートフォンやタブレットでは正しく動作しない場合があります。パソコンからのご利用をおすすめします。
+        </p>
+      </div>
   </div>
 
   <div id="template-screen">
@@ -1423,7 +1429,7 @@ function showTemplateScreen(r){
 function updateCanvasInfo(){
   var el = document.getElementById("canvas-info");
   if(!el || !state.ratio) return;
-  el.textContent = "v62 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
+  el.textContent = "v64 ｜ " + docW() + " × " + canvasHeight() + " px（" + ratioKeyOf(state.ratio) + "）";
 }
 
 function startEditor(r, tplKey){
